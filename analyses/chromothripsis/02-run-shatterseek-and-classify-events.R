@@ -135,9 +135,9 @@ LC_cutoff <-
       # Note: this is equivalent to adding DEL, DUP, h2hINV, and t2tINV
   # At least 4 adjacent segments oscillating between 2 CN states
   (chromoth_combined$max_number_oscillating_CN_segments_2_states >= 4) & 
-  # The fragment joins test:
-  (chromoth_combined$fdr_fragment_joins < 0.2) & 
-  # Either the chromosomal enrichment or the exponential distribution of breakpoints test:
+  # Not significant for the fragment joins test (even distribution of SV types)
+  (chromoth_combined$fdr_fragment_joins > 0.2) & 
+  # Significant for either the chromosomal enrichment or the exponential distribution of breakpoints test:
   (chromoth_combined$fdr_chr_breakpoint_enrichment < 0.2 | chromoth_combined$fdr_exp_cluster < 0.2)
       # Note: Use pval_exp_cluster, not pval_exp_chr
 
@@ -148,9 +148,9 @@ HC_cutoff1 <-
   ((chromoth_combined$clusterSize_including_TRA - chromoth_combined$number_TRA) >= 6) &
   # At least 7 adjacent segments oscillating between 2 CN states:
   (chromoth_combined$max_number_oscillating_CN_segments_2_states >= 7) & 
-  # The fragment joins test:
-  (chromoth_combined$fdr_fragment_joins < 0.2) & 
-  # Either the chromosomal enrichment or the exponential distribution of breakpoints test:
+  # Not significant for the fragment joins test (even distribution of SV types)
+  (chromoth_combined$fdr_fragment_joins > 0.2) & 
+  # Significant for either the chromosomal enrichment or the exponential distribution of breakpoints test:
   (chromoth_combined$fdr_chr_breakpoint_enrichment < 0.2 | chromoth_combined$fdr_exp_cluster < 0.2)
 
 ### High Confidence Cutoff 2
@@ -160,11 +160,8 @@ HC_cutoff2 <-
      chromoth_combined$number_TRA >= 4) &
   # At least 7 adjacent segments oscillating between 2 CN states:
   (chromoth_combined$max_number_oscillating_CN_segments_2_states >= 7) & 
-  # The fragment joins test:
-  (chromoth_combined$fdr_fragment_joins < 0.2)  
-
-# Note: HC Cutoff 2 only captures one additional event not captured by HC Cutoff 1
-  # table(HC_cutoff1, HC_cutoff2)
+  # Not significant for the fragment joins test (even distribution of SV types)
+  (chromoth_combined$fdr_fragment_joins > 0.2)  
 
 ### Add annotation to dataframe
 chromoth_combined$call_high_conf <- 0
@@ -179,15 +176,15 @@ chromoth_combined[which(HC_cutoff1 | HC_cutoff2 | LC_cutoff), "call_low_conf"] <
 
 chromoth_per_sample_hc <- chromoth_combined %>% 
   dplyr::group_by(Kids_First_Biospecimen_ID) %>%
-  dplyr::summarize(count_hc_regions = sum(call_high_conf))
+  dplyr::summarize(count_regions_high_conf = sum(call_high_conf))
 
 chromoth_per_sample_lc <- chromoth_combined %>% 
   dplyr::group_by(Kids_First_Biospecimen_ID) %>%
-  dplyr::summarize(count_lc_regions = sum(call_low_conf))
+  dplyr::summarize(count_regions_low_conf = sum(call_low_conf))
 
 chromoth_per_sample <- dplyr::inner_join(chromoth_per_sample_hc, chromoth_per_sample_lc, by="Kids_First_Biospecimen_ID")
-chromoth_per_sample$any_hc <- chromoth_per_sample$count_hc_regions>0
-chromoth_per_sample$any_lc <- chromoth_per_sample$count_lc_regions>0
+chromoth_per_sample$any_high_conf <- chromoth_per_sample$count_regions_high_conf>0
+chromoth_per_sample$any_low_conf <- chromoth_per_sample$count_regions_low_conf>0
 
 write.table(chromoth_combined, file.path(analysis_dir, "results", "chromothripsis_regions_all_samples.txt"), sep="\t", quote=F, row.names=F)
 write.table(chromoth_per_sample, file.path(analysis_dir, "results", "chromothripsis_info_per_sample.txt"), sep="\t", quote=F, row.names=F)

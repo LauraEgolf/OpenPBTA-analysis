@@ -1,4 +1,8 @@
-# Need to add misc setup, read in chromoth df, etc.
+# Need to add setup
+
+### Read in chromothripsis info per sample (# regions, chromothripsis yes/no)
+chromoth_per_sample <- read.table(file.path(analysis_dir, "results", "chromothripsis_info_per_sample.txt"), 
+                                  head=T, sep="\t", stringsAsFactors = F)
 
 
 ### Setup for plotting
@@ -17,60 +21,42 @@ metadata <- readr::read_tsv(metadata_file, guess_max = 10000) %>%
   dplyr::inner_join(histology_label_mapping, by = "Kids_First_Biospecimen_ID")
 metadata <- subset(metadata, Kids_First_Biospecimen_ID %in% bioid)
 
-# Append chromothripsis info to metadata file
+# Append chromothripsis info to merged metadata file
 metadata_chromoth <- dplyr::inner_join(metadata, chromoth_per_sample, by="Kids_First_Biospecimen_ID")
 
 ### Plot proportion of samples with chromothripsis out of the total for each display group 
-
-# Low confidence events - need to repeat with high confidence
+# Use low confidence events 
 
 # Plot by display_group
 p <- metadata_chromoth %>%
-  dplyr::count(any_lc, display_group, hex_codes) %>%
-  tidyr::pivot_wider(names_from = any_lc, values_from = n, values_fill=0) %>%
+  dplyr::count(any_low_conf, display_group, hex_codes) %>%
+  tidyr::pivot_wider(names_from = any_low_conf, values_from = n, values_fill=0) %>%
   dplyr::group_by(display_group, hex_codes) %>%
-  mutate(prop = `TRUE` / sum(`TRUE`, `FALSE`)) %>%
+  dplyr::mutate(group_size = sum(`TRUE`, `FALSE`)) %>%
+  dplyr::mutate(prop = `TRUE` / group_size) %>%
+  dplyr::mutate(labels = paste0("n=", group_size)) %>%
   ggplot2::ggplot(ggplot2::aes(x = display_group, y = prop, fill = hex_codes)) +
   ggplot2::geom_bar(stat = "identity") +
+  ggplot2::geom_text(aes(label=labels), vjust=-0.2, size=2.5) + 
   ggplot2::scale_fill_identity() +
   ggplot2::ylab("Proportion of Tumors with Chromothripsis") +
   ggplot2::theme(axis.text.x = element_text(angle = 90))
-ggsave("plots/chromothripsis_incidence_per_tumor_type.pdf", p)
+ggsave("plots/chromothripsis_proportion_per_display_group_low_confidence.pdf", p)
 
 # Use pathology_diagnosis instead (to compare to yangyangclover plots)
-metadata_chromoth %>%
-  dplyr::count(any_lc, pathology_diagnosis, hex_codes) %>%
-  tidyr::pivot_wider(names_from = any_lc, values_from = n, values_fill=0) %>%
+p <- metadata_chromoth %>%
+  dplyr::count(any_low_conf, pathology_diagnosis, hex_codes) %>%
+  tidyr::pivot_wider(names_from = any_low_conf, values_from = n, values_fill=0) %>%
   dplyr::group_by(pathology_diagnosis, hex_codes) %>%
-  dplyr::filter(sum(`TRUE`, `FALSE`) >= 5) %>%   # Remove groups with <5
-  mutate(prop = `TRUE` / sum(`TRUE`, `FALSE`)) %>%
+  dplyr::mutate(group_size = sum(`TRUE`, `FALSE`)) %>%
+  dplyr::filter(group_size >= 5) %>%   # Remove groups with <5
+  dplyr::mutate(prop = `TRUE` / group_size) %>%
+  dplyr::mutate(labels = paste0("n=", group_size)) %>%
   ggplot2::ggplot(ggplot2::aes(x = pathology_diagnosis, y = prop, fill = hex_codes)) +
   ggplot2::geom_bar(stat = "identity") +
+  ggplot2::geom_text(aes(label=labels), vjust=-0.2, size=2.5) + 
   ggplot2::scale_fill_identity() +
   ggplot2::ylab("Proportion of Tumors with Chromothripsis") +
   ggplot2::theme(axis.text.x = element_text(angle = 90))
-
-
-# ################## Same code in base R: ##################
-# 
-# prop <- as.data.frame.matrix(table(metadata_chromoth$display_group, metadata_chromoth$any_lc))
-# prop <- prop[rownames(prop) != "Normal",]   # Remove row for normal (don't need it)
-# colnames(prop) <- c("no_chromoth", "chromoth")
-# prop$total <- prop$no_chromoth + prop$chromoth
-# prop$freq <- prop$chromoth / prop$total
-# 
-# # Add hex_codes
-# colors <- unique(as.data.frame(metadata[,c("display_group", "hex_codes")]))
-# rownames(colors) <- colors$display_group
-# prop$hex_codes <- colors[rownames(prop), "hex_codes"]
-# 
-# # Need to fix plotting order
-# ggplot(data=prop, aes(x = rownames(prop), y = freq, fill = hex_codes)) +
-#   geom_bar(stat = "identity") +
-#   scale_fill_identity() +
-#   xlab(NULL) +
-#   ylab("Proportion of Tumors with Chromothripsis") +
-#   theme(axis.text.x = element_text(angle = 90))
-# 
-# #########################################################
+ggsave("plots/chromothripsis_proportion_per_pathology_diagnosis_low_confidence.pdf", p)
 
