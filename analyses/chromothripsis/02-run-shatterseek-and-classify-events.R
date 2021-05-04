@@ -9,7 +9,7 @@
 ## ===================== Load Packages =====================
 #library(devtools)
 library(ShatterSeek)
-library(tidyverse)
+library(tidyverse)   ### add in functions so I don't have to load entire library
 
 
 ## ===================== Root Directory =====================
@@ -21,7 +21,7 @@ analysis_dir <- file.path(root_dir, "analyses", "chromothripsis")
 
 ## ===================== Load  Independent Specimen List =====================
 independent_specimen_list <- read.table(file.path(root_dir, "data", "independent-specimens.wgs.primary-plus.tsv"), 
-                                        header = TRUE, sep = "\t")
+                                        header = TRUE, sep = "\t", stringsAsFactors = F)
 # bioid including all sample's names will be used later
 bioid <- unique(independent_specimen_list$Kids_First_Biospecimen_ID)
 
@@ -32,6 +32,21 @@ cnvconsensus <- read_tsv(file.path(root_dir, "data", "pbta-cnv-consensus.seg.gz"
 
 # Shatterseek cannot work with NA copy number, remove rows with NA copy number
 cnvconsensus <- cnvconsensus[!is.na(cnvconsensus$copy.num),]
+
+# Choose independent specimens 
+cnvconsensus <- cnvconsensus[cnvconsensus$ID %in% bioid,]
+
+# Subset bioid to only samples that have CNV data
+  # Note that 20 samples are not included in the CNV consensus because they failed QC 
+  # for 2 callers (see analyses/copy_number_consensus_call/results/uncalled_samples.tsv).
+  # So this analysis includes 777 samples instead of the full 797 in the independent
+  # specimens list.
+bioid <- bioid[bioid %in% cnvconsensus$ID]
+
+# Remove chrY (ShatterSeek does not recognize)
+cnvconsensus <- cnvconsensus[cnvconsensus$chrom != "chrY",]
+# Remove "chr" notation (ShatterSeek does not recognize)
+cnvconsensus$chrom <- gsub("chr","",cnvconsensus$chrom)
 
 # # Check whether adjacent CNV segments have different CN values (requirement for ShatterSeek)
 # checkCNV_logical <- logical()
@@ -48,12 +63,6 @@ cnvconsensus <- cnvconsensus[!is.na(cnvconsensus$copy.num),]
 # temp3 <- unique(temp2[order(temp2)])
 # View(cnvconsensus[temp3,])
 # # They're all CN=2 regions - not sure if this matters
-
-# Choose independent specimens and remove all chrY (Shatterseek cannot recognize)
-cnv_analysis <-  cnvconsensus[cnvconsensus$ID %in% bioid & cnvconsensus$chrom != "chrY",]
-# remove "chr", because shatterseek can't recognize it
-cnv_analysis$chrom <- gsub("chr","",cnv_analysis$chrom)
-
 
 
 ## ===================== Run shatterseek, combine and output results =====================
@@ -72,11 +81,11 @@ for (i in bioid) {
   sv_shatterseek <- read.table(file.path(root_dir, "scratch","sv-vcf",paste(i,"_withoutYandM.tsv",sep="")),sep="\t",header=TRUE)
   
   #  Subset CNV dataframe to current sample
-  cnv_shatterseek <-  cnv_analysis[cnv_analysis$ID == i,]
+  cnv_shatterseek <-  cnvconsensus[cnvconsensus$ID == i,]
   
-  # If SV file is empty, jump into next loop
-  if (nrow(sv_shatterseek) == 0) {
-      print(paste0(i," has an empty sv file"))
+  # If CNV or SV file is empty, jump into next loop
+  if (nrow(cnv_shatterseek) == 0 | nrow(sv_shatterseek) == 0) {
+      print(paste0(i," is missing CNV or SV data"))
     next;
   }
 
@@ -112,7 +121,8 @@ for (i in bioid) {
   
 }
 
-# Note: chromoth_combined contains one row per chromosome per sample
+# Note: ShatterSeek only reports one chromothripsis event per chromosome. Also, the output (chromoth_combined)
+# contains one row per chromosome per sample, even though not all chromosomes have a chromothripsis event. 
 
 saveRDS(chromoth_obj_list, file = file.path(root_dir, "scratch", "chromoth_obj_list.rds"))
 
@@ -128,7 +138,9 @@ chromoth_combined$fdr_fragment_joins <- p.adjust(chromoth_combined$pval_fragment
 chromoth_combined$fdr_chr_breakpoint_enrichment <- p.adjust(chromoth_combined$chr_breakpoint_enrichment, method = "fdr")
 chromoth_combined$fdr_exp_cluster <- p.adjust(chromoth_combined$pval_exp_cluster, method = "fdr")
 
-### Low Confidence Cutoff
+### Define logic vector for each cutoff
+
+## Low Confidence Cutoff
 LC_cutoff <- 
   # At least 6 interleaved intrachromosomal SVs:
   ((chromoth_combined$clusterSize_including_TRA - chromoth_combined$number_TRA) >= 6) &
@@ -141,8 +153,8 @@ LC_cutoff <-
   (chromoth_combined$fdr_chr_breakpoint_enrichment < 0.2 | chromoth_combined$fdr_exp_cluster < 0.2)
       # Note: Use pval_exp_cluster, not pval_exp_chr
 
-### High Confidence Cutoff 1
-### Note: Same as low confidence cutoff, but more stringent for oscillating CN states
+## High Confidence Cutoff 1
+## Note: Same as low confidence cutoff, but more stringent for oscillating CN states
 HC_cutoff1 <- 
   # At least 6 interleaved intrachromosomal SVs:
   ((chromoth_combined$clusterSize_including_TRA - chromoth_combined$number_TRA) >= 6) &
@@ -153,7 +165,7 @@ HC_cutoff1 <-
   # Significant for either the chromosomal enrichment or the exponential distribution of breakpoints test:
   (chromoth_combined$fdr_chr_breakpoint_enrichment < 0.2 | chromoth_combined$fdr_exp_cluster < 0.2)
 
-### High Confidence Cutoff 2
+## High Confidence Cutoff 2
 HC_cutoff2 <-
   # At least 3 interleaved intrachromosomal SVs and at least 4 interchromosomal SVs:
   ((chromoth_combined$clusterSize_including_TRA - chromoth_combined$number_TRA) >= 3 & 
@@ -163,16 +175,16 @@ HC_cutoff2 <-
   # Not significant for the fragment joins test (even distribution of SV types)
   (chromoth_combined$fdr_fragment_joins > 0.2)  
 
-### Add annotation to dataframe
+### Annotate each row of ShatterSeek results dataframe with high or low confidence call based on cutoffs
 chromoth_combined$call_high_conf <- 0
 chromoth_combined[which(HC_cutoff1 | HC_cutoff2), "call_high_conf"] <- 1
 chromoth_combined$call_low_conf <- 0
 chromoth_combined[which(HC_cutoff1 | HC_cutoff2 | LC_cutoff), "call_low_conf"] <- 1
 
-### New dataframe with sample-level info
+### Create new dataframe with sample-level info
 # Count the number of chromothripsis regions per sample
 # Create a logical variable indicating whether or not each sample has >=1 chromothripsis region
-# Repeat both high confidence and low confidence chromothripsis criteria
+# Repeat for both high confidence and low confidence chromothripsis criteria
 
 chromoth_per_sample_hc <- chromoth_combined %>% 
   dplyr::group_by(Kids_First_Biospecimen_ID) %>%
@@ -186,6 +198,7 @@ chromoth_per_sample <- dplyr::inner_join(chromoth_per_sample_hc, chromoth_per_sa
 chromoth_per_sample$any_high_conf <- chromoth_per_sample$count_regions_high_conf>0
 chromoth_per_sample$any_low_conf <- chromoth_per_sample$count_regions_low_conf>0
 
+### Write out results
 write.table(chromoth_combined, file.path(analysis_dir, "results", "chromothripsis_regions_all_samples.txt"), sep="\t", quote=F, row.names=F)
 write.table(chromoth_per_sample, file.path(analysis_dir, "results", "chromothripsis_info_per_sample.txt"), sep="\t", quote=F, row.names=F)
 
