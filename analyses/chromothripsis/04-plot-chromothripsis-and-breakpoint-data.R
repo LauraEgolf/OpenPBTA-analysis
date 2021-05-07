@@ -1,14 +1,14 @@
 ### Set root & analysis directories
 root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 analysis_dir <- file.path(root_dir, "analyses", "chromothripsis")
-plots_dir <- file.path(analysis_dir, "plots", "breakpoint-data")
+plots_dir <- file.path(analysis_dir, "plots", "04-breakpoint-data")
 
 ### Define Magrittr pipe
 `%>%` <- dplyr::`%>%`
 
 ### Read in metadata_chromoth
 # TO DO 
-# Decide whether to write this out or repeat code
+# Maybe make a separate script/function to set up this df, or read it in from scratch
 
 
 ### Read in CNV and SV breakpoint data

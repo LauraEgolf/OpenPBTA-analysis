@@ -1,7 +1,7 @@
 ### Set root & analysis directories
 root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 analysis_dir <- file.path(root_dir, "analyses", "chromothripsis")
-plots_dir <- file.path(analysis_dir, "plots", "histology")
+plots_dir <- file.path(analysis_dir, "plots", "03-histology")
 
 ### Define Magrittr pipe
 `%>%` <- dplyr::`%>%`
@@ -11,7 +11,7 @@ library(ggplot2)
 library(RColorBrewer)
 
 ### Read in chromothripsis info per sample (# regions, chromothripsis yes/no)
-chromoth_per_sample <- read.table(file.path(analysis_dir, "results", "chromothripsis_info_per_sample.txt"), 
+chromoth_per_sample <- read.table(file.path(analysis_dir, "results", "chromothripsis_summary_per_sample.txt"), 
                                   head=T, sep="\t", stringsAsFactors = F)
 
 ### Merge with standard color palettes and metadata
@@ -36,7 +36,7 @@ metadata_chromoth <- dplyr::inner_join(metadata, chromoth_per_sample, by="Kids_F
 ### Plot proportion of samples with chromothripsis out of the total for each histology 
 
 ### Plot by pathology_diagnosis (to compare to yangyangclover plots)
-# Basic bar plot: all events (any confidence level)
+# Basic bar plot: all regions (any confidence level)
 p <- metadata_chromoth %>%
   dplyr::count(any_regions_all_conf, pathology_diagnosis, hex_codes) %>%
   tidyr::pivot_wider(names_from = any_regions_all_conf, values_from = n, values_fill=0) %>%
@@ -59,7 +59,7 @@ ggsave(file.path(plots_dir, "chromothripsis_proportion_per_pathology_diagnosis.p
 ### For the rest of the plots, plot by display_group
 
 
-### Basic bar plot: all events (any confidence level)
+### Basic bar plot: all regions (any confidence level)
 
 p <- metadata_chromoth %>%
   dplyr::count(any_regions_all_conf, display_group, hex_codes) %>%

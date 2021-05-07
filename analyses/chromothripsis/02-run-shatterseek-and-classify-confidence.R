@@ -122,17 +122,22 @@ for (i in bioid) {
   
 }
 
-# Note: ShatterSeek only reports one chromothripsis event per chromosome. Also, the output (chromoth_combined)
-# contains one row per chromosome per sample, even though not all chromosomes have a chromothripsis event. 
+# Note: ShatterSeek only reports one chromothripsis region per chromosome. Also, the output (chromoth_combined)
+# contains one row per chromosome per sample, even though not all chromosomes have a chromothripsis region. 
 
+# Remove newline characters from column 'inter_other_chroms_coords_all'
+# (I think they were inserted for plotting purposes, but they make it hard to read & write the data)
+chromoth_combined$inter_other_chroms_coords_all <- gsub("\n", ";", chromoth_combined$inter_other_chroms_coords_all)
+
+# Save list of chromoth objects in scratch directory
 saveRDS(chromoth_obj_list, file = file.path(root_dir, "scratch", "chromoth_obj_list.rds"))
 
 
-## ===================== Classify high and low confidence chromothripsis events =====================
+## ===================== Classify high and low confidence chromothripsis regions =====================
 # Cutoffs used here are described briefly in ShatterSeek tutorial and in more detail 
 # in Cortes-Ciriano et al (Supplemental Note).
-# There is one set of cutoffs for low confidence chromothripsis events, and two different 
-# sets of criteria for high confidence events.
+# There is one set of cutoffs for low confidence chromothripsis regions, and two different 
+# sets of criteria for high confidence regions.
 
 ### Add FDR correction
 chromoth_combined$fdr_fragment_joins <- p.adjust(chromoth_combined$pval_fragment_joins, method = "fdr")
@@ -207,8 +212,13 @@ chromoth_per_sample$any_regions_merged <- "No Calls"
 chromoth_per_sample[chromoth_per_sample$any_regions_low_conf, "any_regions_merged"] <- "Low Confidence"
 chromoth_per_sample[chromoth_per_sample$any_regions_high_conf, "any_regions_merged"] <- "High Confidence"
 
-### Write out results: ShatterSeek results dataframe & summary-per-sample dataframe
-write.table(chromoth_combined, file.path(analysis_dir, "results", "chromothripsis_regions_all_samples.txt"), 
+
+## =====================  Write out results =====================
+
+# ShatterSeek results with chromothripsis call defined above
+write.table(chromoth_combined, file.path(analysis_dir, "results", "shatterseek_results_per_chromosome.txt"), 
             sep="\t", quote=F, row.names=F)
-write.table(chromoth_per_sample, file.path(analysis_dir, "results", "chromothripsis_info_per_sample.txt"), 
+
+# Per-sample summary of chromothripsis calls
+write.table(chromoth_per_sample, file.path(analysis_dir, "results", "chromothripsis_summary_per_sample.txt"), 
             sep="\t", quote=F, row.names=F)
