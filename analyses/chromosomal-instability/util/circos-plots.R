@@ -138,7 +138,8 @@ circos_map_plot <- function(df,
   # Can't have identical y_min and y_max, this is just so CircleCI runs even if 
   # the subset data is wonky
   if (y_min == y_max) {
-    y_max <- y_max + 0.001 
+    y_min <- y_min - 1
+    y_max <- y_max + 1 
     warning("ymax and ymin are identical")
   }
     

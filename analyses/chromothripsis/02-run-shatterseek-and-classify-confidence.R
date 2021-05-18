@@ -1,5 +1,5 @@
-# Laura Egolf 2021
-# Partially adapted from Yang Yang 2020 
+# Laura Egolf (@LauraEgolf) 2021
+# Partially adapted from Yang Yang (@yangyangclover) 2020 
 # https://github.com/AlexsLemonade/OpenPBTA-analysis/blob/master/analyses/sv-analysis/02-shatterseek.R
 
 ### Install ShatterSeek (use code from Dockerfile)
