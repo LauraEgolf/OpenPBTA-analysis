@@ -87,7 +87,7 @@ p <- ggplot(metadata_chromoth, aes(x = display_group, fill = hex_codes,
   geom_bar(position = "fill") +
   scale_fill_identity() +
   scale_alpha_manual(values=c(0, 0.5, 1), name="Confidence Level") +
-  ylim(c(0,0.4)) +
+  ylim(c(0,0.4)) +  # ggplot will output warning - 16 rows missing (these are the bars for "No Calls")
   xlab(NULL) + 
   ylab("Proportion of Tumors") +
   theme_light() +
@@ -98,14 +98,15 @@ ggsave(file.path(plots_dir, "chromothripsis_proportion_per_display_group_withCon
 ### Bar plot stacked by number of chromothripsis regions
 
 # Define color scale for # chromothripsis regions, but set "0" as transparent so the bar doesn't show
-  # This may need to be updated if the ShatterSeek results change
-colors <- brewer.pal(7, "YlOrRd")
+  # This will need to be updated if the ShatterSeek results change and there are samples with more than 4
+  # chromothripsis regions.
+colors <- brewer.pal(5, "YlOrRd")
 colors[1] <- "#1C00ff00"
 
 p <- ggplot(metadata_chromoth, aes(x = display_group, fill = as.factor(count_regions_all_conf))) +
   geom_bar(position = "fill") +
   scale_fill_manual(values=colors, name="# Chromothripsis\nRegions") +
-  ylim(c(0,0.4)) +
+  ylim(c(0,0.4)) +  # ggplot will output warning - 16 rows missing (these are the bars for "0")
   xlab(NULL) + 
   ylab("Proportion of Tumors") +
   theme_light() +

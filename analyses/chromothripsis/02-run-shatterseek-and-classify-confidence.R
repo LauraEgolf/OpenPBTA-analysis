@@ -2,141 +2,204 @@
 # Partially adapted from Yang Yang (@yangyangclover) 2020 
 # https://github.com/AlexsLemonade/OpenPBTA-analysis/blob/master/analyses/sv-analysis/02-shatterseek.R
 
-### Install ShatterSeek (use code from Dockerfile)
+### Install ShatterSeek (using code from Dockerfile)
 # BiocManager::install("graph")
 # R -e "withr::with_envvar(c(R_REMOTES_NO_ERRORS_FROM_WARNINGS='true'), remotes::install_github('parklab/ShatterSeek', ref = '83ab3effaf9589cc391ecc2ac45a6eaf578b5046', dependencies = TRUE))"
 
 
 ## ===================== Load Packages =====================
-#library(devtools)
 library(ShatterSeek)
-library(tidyverse)   ### add in functions so I don't have to load entire library
 
+# Define Magrittr pipe
+`%>%` <- dplyr::`%>%`
 
-## ===================== Root Directory =====================
+## ===================== Define Root and Analysis Directory =====================
 # Detect the ".git" folder -- this will in the project root directory.
 # Use this as the root directory to ensure proper sourcing of functions no
 # matter where this is called from
 root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 analysis_dir <- file.path(root_dir, "analyses", "chromothripsis")
 
-## ===================== Load  Independent Specimen List =====================
+
+## ===================== Load Independent Specimen List =====================
 independent_specimen_list <- read.table(file.path(root_dir, "data", "independent-specimens.wgs.primary-plus.tsv"), 
                                         header = TRUE, sep = "\t", stringsAsFactors = F)
-# bioid including all sample's names will be used later
+# Create vector with all sample names
 bioid <- unique(independent_specimen_list$Kids_First_Biospecimen_ID)
 
 
-## ===================== Load CNV File =====================
+## ===================== Load and Format CNV File =====================
 # Read cnv consensus file
-cnvconsensus <- read_tsv(file.path(root_dir, "data", "pbta-cnv-consensus.seg.gz"))
-
-# Shatterseek cannot work with NA copy number, remove rows with NA copy number
-cnvconsensus <- cnvconsensus[!is.na(cnvconsensus$copy.num),]
+cnvconsensus <- read.table(file.path(root_dir, "data", "pbta-cnv-consensus.seg.gz"),
+                           header = TRUE, sep = "\t", stringsAsFactors = F)
 
 # Choose independent specimens 
 cnvconsensus <- cnvconsensus[cnvconsensus$ID %in% bioid,]
 
 # Subset bioid to only samples that have CNV data
   # Note that 20 samples are not included in the CNV consensus because they failed QC 
-  # for 2 callers (see analyses/copy_number_consensus_call/results/uncalled_samples.tsv).
+  # for 2+ callers (see analyses/copy_number_consensus_call/results/uncalled_samples.tsv).
   # So this analysis includes 777 samples instead of the full 797 in the independent
   # specimens list.
 bioid <- bioid[bioid %in% cnvconsensus$ID]
 
-# Remove chrY (ShatterSeek does not recognize)
+## Reformat to fit ShatterSeek input requirements:
+# Remove chrY 
 cnvconsensus <- cnvconsensus[cnvconsensus$chrom != "chrY",]
-# Remove "chr" notation (ShatterSeek does not recognize)
+# Remove "chr" notation 
 cnvconsensus$chrom <- gsub("chr","",cnvconsensus$chrom)
-
-# # Check whether adjacent CNV segments have different CN values (requirement for ShatterSeek)
-# checkCNV_logical <- logical()
-# num <- dim(cnvconsensus)[1]-1
-# for ( i in 1:num) {
-#   checkCNV_logical[i] <-
-#     (cnvconsensus[i, "loc.end"] == cnvconsensus[i+1, "loc.start"]) &
-#     (cnvconsensus[i, "copy.num"] == cnvconsensus[i+1, "copy.num"]) &
-#     (cnvconsensus[i, "chrom"] == cnvconsensus[i+1, "chrom"])
-# }
-# # TRUE for 16 segment pairs - should probably merge these...
-# temp <- which(checkCNV_logical)
-# temp2 <- c(temp, temp+1)
-# temp3 <- unique(temp2[order(temp2)])
-# View(cnvconsensus[temp3,])
-# # They're all CN=2 regions - not sure if this matters
+# Remove rows with NA copy number
+cnvconsensus <- cnvconsensus[!is.na(cnvconsensus$copy.num),]
 
 
-## ===================== Run ShatterSeek, combine and output results =====================
+## ===================== Define function to merge consecutive CN segments =====================
+
+### Explanation:
+
+# ShatterSeek treats every CN segment as a copy number oscillation, even if two consecutive segments 
+# share the same CN value. This is true whether or not there are gaps in between consecutive segments 
+# (and it can't handle NA values).
+# Because the consensus CNV results include gaps, this threw off the ShatterSeek results. Samples with 
+# no CN changes (CN=2 for every segment) were called as having copy number oscillations.
+
+# To avoid this problem, this function merges consecutive CN segments that share the same CN value.
+# There can be gaps of any length in between the segments - they just need to be consecutive (not adjacent) 
+# on the same chromosome and have the same copy number value.
+
+# I couldn't find a solution to do something like this using established packages, but I'm happy to hear suggestions 
+# if anyone can think of a way to simplify this.
+
+mergeCNsegments <- function(cnv_df) {
+
+  # Order rows by chromosome and start position 
+  cnv_df <- cnv_df[with(cnv_df, order(chrom, loc.start)),]
+  
+  # Annotate each row with TRUE if its chromosome and CN value matches the next row, or FALSE if it doesn't
+  checkCNV_logical <- logical()
+  num_rows <- dim(cnv_df)[1]-1 # Subtract 1 because the last row will not have a comparison
+  for (n in 1:num_rows) {
+    checkCNV_logical[n] <-
+      (cnv_df[n, "chrom"] == cnv_df[n+1, "chrom"]) & 
+      (cnv_df[n, "copy.num"] == cnv_df[n+1, "copy.num"])
+  }
+  cnv_df$checkCNV_logical <- c(checkCNV_logical, NA) # Append an NA for the last row
+  
+  # Now identify runs of TRUE values, and extract their start and end positions within the dataframe
+  # to get the positions for consecutive rows with matching copy number
+  # (Adapted from https://masterr.org/r/how-to-find-consecutive-repeats-in-r/)
+  
+  # Identify consecutive runs of same value (TRUE or FALSE)
+  runs <- rle(cnv_df$checkCNV_logical)
+  
+  # Create index for TRUE runs 
+  runs_TRUE <- which(runs$values == TRUE)
+  
+  # Calculate cumulative sum for run lengths
+  runs.lengths.cumsum <- cumsum(runs$lengths)
+  
+  # Find end positions for TRUE runs; add 1 to get the last row with matching CN
+  # (because TRUE is defined based on row n and row n+1)
+  ends <- runs.lengths.cumsum[runs_TRUE] + 1
+  
+  # Find start positions for TRUE runs
+  newindex <- ifelse(runs_TRUE>1, runs_TRUE-1, 0)
+  starts <- runs.lengths.cumsum[newindex] + 1
+  if (0 %in% newindex) starts <- c(1,starts)
+  
+  # Loop through start and end positions for consecutive rows of matching CN; 
+  # create new merged rows; define a list of unmerged rows to remove
+  merged_rows <- data.frame()
+  rows_to_remove <- vector()
+  for (i in 1:length(starts)){
+    merged_chrom <- cnv_df[starts[i], "chrom"]
+    merged_start <- cnv_df[starts[i], "loc.start"]
+    merged_end <- cnv_df[ends[i], "loc.end"]
+    merged_cn <- cnv_df[starts[i], "copy.num"]
+    merged_row <- data.frame(chrom=merged_chrom, loc.start=merged_start, loc.end=merged_end, copy.num=merged_cn)
+    merged_rows <- rbind(merged_rows, merged_row)
+    rows_to_remove <- c(rows_to_remove, starts[i]:ends[i])
+  }
+  
+  # Remove unmerged rows from CNV df
+  cnv_df_merged <- cnv_df[-rows_to_remove,]
+  
+  # Add merged rows to CNV df (first subset to the necessary columns)
+  cnv_df_merged <- cnv_df_merged[,c(2:4,7)]
+  cnv_df_merged <- rbind(cnv_df_merged, merged_rows)
+  
+  # Reorder rows by chromosome and start position 
+  cnv_df_merged <- cnv_df_merged[with(cnv_df_merged, order(chrom, loc.start)),]
+
+}
+
+## ===================== Run ShatterSeek and Combine Results =====================
+count <- 0 # Keep track of sample count (print status while running)
 total <- length(bioid) # Total number of samples to run
-count <- 0 # Keep track of sample count
-chromoth_combined <- data.frame() # Merge results from different samples into one df
-chromoth_obj_list <- vector("list", total) # Store shatterseek output as list of chromoth objects
+chromoth_combined <- data.frame() # Data frame to merge summary data from different samples
+chromoth_obj_list <- vector("list", total) # List to store ShatterSeek chromoth objects from different samples
 names(chromoth_obj_list) <- bioid
 
 # Loop through sample list and run ShatterSeek
-for (i in bioid) {
+for (b in bioid) {
+  # Print status
   count=count+1
-  print(paste0("Running: ", i, " (", count, " of ", total, ")"))
+  print(paste0("Running: ", b, " (", count, " of ", total, ")"))
   
   # Read SV file for current sample
-  sv_shatterseek <- read.table(file.path(root_dir, "scratch","sv-vcf",paste(i,"_withoutYandM.tsv",sep="")),sep="\t",header=TRUE)
+  sv_current <- read.table(file.path(root_dir, "scratch","sv-vcf",paste(b,"_withoutYandM.tsv",sep="")),sep="\t",header=TRUE)
   
-  #  Subset CNV dataframe to current sample
-  cnv_shatterseek <-  cnvconsensus[cnvconsensus$ID == i,]
+  # Subset CNV dataframe to current sample
+  cnv_current <-  cnvconsensus[cnvconsensus$ID == b,]
   
   # If CNV or SV file is empty, jump into next loop
-  if (nrow(cnv_shatterseek) == 0 | nrow(sv_shatterseek) == 0) {
-      print(paste0(i," is missing CNV or SV data"))
+  if (nrow(cnv_current) == 0 | nrow(sv_current) == 0) {
+      print(paste0(b," is missing CNV or SV data"))
     next;
   }
+
+  # Merge consecutive CN segments that share the same CN value (see function description)
+  cnv_current_merged <- mergeCNsegments(cnv_current)
 
   # Build SV and CNV objects
   SV_data <-
     SVs(
-      chrom1 = as.character(sv_shatterseek$chrom1),
-      pos1 = as.numeric(sv_shatterseek$pos1),
-      chrom2 = as.character(sv_shatterseek$chrom2),
-      pos2 = as.numeric(sv_shatterseek$pos2),
-      SVtype = as.character(sv_shatterseek$SVtype),
-      strand1 = as.character(sv_shatterseek$strand1),
-      strand2 = as.character(sv_shatterseek$strand2)
+      chrom1 = as.character(sv_current$chrom1),
+      pos1 = as.numeric(sv_current$pos1),
+      chrom2 = as.character(sv_current$chrom2),
+      pos2 = as.numeric(sv_current$pos2),
+      SVtype = as.character(sv_current$SVtype),
+      strand1 = as.character(sv_current$strand1),
+      strand2 = as.character(sv_current$strand2)
     )
   CN_data <-
     CNVsegs(
-      chrom = as.character(cnv_shatterseek$chrom),
-      start = cnv_shatterseek$loc.start,
-      end = cnv_shatterseek$loc.end,
-      total_cn = cnv_shatterseek$copy.num
+      chrom = as.character(cnv_current_merged$chrom),
+      start = cnv_current_merged$loc.start,
+      end = cnv_current_merged$loc.end,
+      total_cn = cnv_current_merged$copy.num
     )
   
-  # Run shatterseek
+  # Run ShatterSeek
   chromothripsis <- shatterseek(SV.sample=SV_data,seg.sample=CN_data)
 
-  # Save summary in a combined dataframe
+  # Save chromSummary in a combined dataframe
   chromoth_summary <- chromothripsis@chromSummary
-  chromoth_summary$Kids_First_Biospecimen_ID <- i
+  chromoth_summary$Kids_First_Biospecimen_ID <- b
   chromoth_combined <- rbind(chromoth_combined, chromoth_summary)
   
-  # Save full chromoth object as a named list
-  chromoth_obj_list[[count]] <- chromothripsis
-  
+  # Save chromoth object in a named list
+  chromoth_obj_list[[b]] <- chromothripsis
 }
 
-# Note: ShatterSeek only reports one chromothripsis region per chromosome. Also, the output (chromoth_combined)
-# contains one row per chromosome per sample, even though not all chromosomes have a chromothripsis region. 
-
-# Remove newline characters from column 'inter_other_chroms_coords_all'
-# (I think they were inserted for plotting purposes, but they make it hard to read & write the data)
-chromoth_combined$inter_other_chroms_coords_all <- gsub("\n", ";", chromoth_combined$inter_other_chroms_coords_all)
-
-# Save list of chromoth objects in scratch directory
-saveRDS(chromoth_obj_list, file = file.path(root_dir, "scratch", "chromoth_obj_list.rds"))
+# Notes about ShatterSeek output:
+  # ShatterSeek reports details for each chromosome for each sample, even if that chromosome doesn't have CNVs/SVs.
+  # ShatterSeek only reports one chromothripsis region per chromosome.
 
 
 ## ===================== Classify high and low confidence chromothripsis regions =====================
 # Cutoffs used here are described briefly in ShatterSeek tutorial and in more detail 
-# in Cortes-Ciriano et al (Supplemental Note).
-# There is one set of cutoffs for low confidence chromothripsis regions, and two different 
+# in Cortes-Ciriano et al. (Supplemental Note).
+# There is one set of criteria for low confidence chromothripsis regions, and two different 
 # sets of criteria for high confidence regions.
 
 ### Add FDR correction
@@ -160,7 +223,7 @@ LC_cutoff <-
       # Note: Use pval_exp_cluster, not pval_exp_chr
 
 ## High Confidence Cutoff 1
-## Note: Same as low confidence cutoff, but more stringent for oscillating CN states
+## Note: Same as Low Confidence Cutoff, but more stringent for oscillating CN states
 HC_cutoff1 <- 
   # At least 6 interleaved intrachromosomal SVs:
   ((chromoth_combined$clusterSize_including_TRA - chromoth_combined$number_TRA) >= 6) &
@@ -215,10 +278,17 @@ chromoth_per_sample[chromoth_per_sample$any_regions_high_conf, "any_regions_merg
 
 ## =====================  Write out results =====================
 
-# ShatterSeek results with chromothripsis call defined above
+# Remove newline characters from column 'inter_other_chroms_coords_all'
+# (I think they were inserted for plotting purposes, but they make it hard to read & write the data)
+chromoth_combined$inter_other_chroms_coords_all <- gsub("\n", ";", chromoth_combined$inter_other_chroms_coords_all)
+
+# Write out ShatterSeek results with chromothripsis calls defined above
 write.table(chromoth_combined, file.path(analysis_dir, "results", "shatterseek_results_per_chromosome.txt"), 
             sep="\t", quote=F, row.names=F)
 
-# Per-sample summary of chromothripsis calls
+# Write out per-sample summary of chromothripsis calls
 write.table(chromoth_per_sample, file.path(analysis_dir, "results", "chromothripsis_summary_per_sample.txt"), 
             sep="\t", quote=F, row.names=F)
+
+# Save list of chromoth objects in scratch directory (used for plotting in script 05)
+saveRDS(chromoth_obj_list, file = file.path(root_dir, "scratch", "chromoth_obj_list.rds"))
