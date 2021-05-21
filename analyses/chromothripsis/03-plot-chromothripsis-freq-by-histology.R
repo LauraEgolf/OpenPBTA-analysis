@@ -55,6 +55,26 @@ p <- metadata_chromoth %>%
   theme(axis.text.x = element_text(angle = 90, hjust=0.95))
 ggsave(file.path(plots_dir, "chromothripsis_proportion_per_pathology_diagnosis.pdf"), p)
 
+### Plot by short_histology (to compare to chromosomal-instability plots)
+# Basic bar plot: all regions (any confidence level)
+p <- metadata_chromoth %>%
+  dplyr::count(any_regions_all_conf, short_histology, hex_codes) %>%
+  tidyr::pivot_wider(names_from = any_regions_all_conf, values_from = n, values_fill=0) %>%
+  dplyr::group_by(short_histology, hex_codes) %>%
+  dplyr::mutate(group_size = sum(`TRUE`, `FALSE`)) %>%
+  dplyr::filter(group_size >= 5) %>%   # Remove groups with <5
+  dplyr::mutate(prop = `TRUE` / group_size) %>%
+  dplyr::mutate(labels = paste0(`TRUE`, " / ", group_size)) %>%
+  ggplot(aes(x = short_histology, y = prop, fill = hex_codes)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label=labels), vjust=-0.2, size=2.5) + 
+  scale_fill_identity() +
+  xlab(NULL) + 
+  ylab("Proportion of Tumors with Chromothripsis") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90, hjust=0.95))
+ggsave(file.path(plots_dir, "chromothripsis_proportion_per_short_histology.pdf"), p)
+
 
 ### For the rest of the plots, plot by display_group
 
