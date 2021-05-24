@@ -1,10 +1,6 @@
 # Laura Egolf (@LauraEgolf) 2021
 # Partially adapted from Yang Yang (@yangyangclover) 2020 
-# https://github.com/AlexsLemonade/OpenPBTA-analysis/blob/master/analyses/sv-analysis/02-shatterseek.R
-
-### Install ShatterSeek (using code from Dockerfile)
-# BiocManager::install("graph")
-# R -e "withr::with_envvar(c(R_REMOTES_NO_ERRORS_FROM_WARNINGS='true'), remotes::install_github('parklab/ShatterSeek', ref = '83ab3effaf9589cc391ecc2ac45a6eaf578b5046', dependencies = TRUE))"
+  # https://github.com/AlexsLemonade/OpenPBTA-analysis/blob/902e4c49a80dbc69d1c5c9055ddeb5d4f752219d/analyses/sv-analysis/02-shatterseek.R
 
 
 ## ===================== Load Packages =====================
@@ -13,12 +9,18 @@ library(ShatterSeek)
 # Define Magrittr pipe
 `%>%` <- dplyr::`%>%`
 
-## ===================== Define Root and Analysis Directory =====================
+## ===================== Define Directory Paths =====================
 # Detect the ".git" folder -- this will in the project root directory.
 # Use this as the root directory to ensure proper sourcing of functions no
 # matter where this is called from
 root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 analysis_dir <- file.path(root_dir, "analyses", "chromothripsis")
+results_dir <- file.path(analysis_dir, "results")
+
+# Create results directory if it doesn't exist
+if (!dir.exists(results_dir)) {
+  dir.create(results_dir, recursive = TRUE)
+}
 
 
 ## ===================== Load Independent Specimen List =====================
@@ -132,6 +134,7 @@ mergeCNsegments <- function(cnv_df) {
 
 }
 
+
 ## ===================== Run ShatterSeek and Combine Results =====================
 count <- 0 # Keep track of sample count (print status while running)
 total <- length(bioid) # Total number of samples to run
@@ -184,7 +187,7 @@ for (b in bioid) {
 
   # Save chromSummary in a combined dataframe
   chromoth_summary <- chromothripsis@chromSummary
-  chromoth_summary$Kids_First_Biospecimen_ID <- b
+  chromoth_summary <- cbind(Kids_First_Biospecimen_ID = b, chromoth_summary) # Add sample ID
   chromoth_combined <- rbind(chromoth_combined, chromoth_summary)
   
   # Save chromoth object in a named list
@@ -245,35 +248,31 @@ HC_cutoff2 <-
   (chromoth_combined$fdr_fragment_joins > 0.2)  
 
 ### Annotate each row of ShatterSeek results dataframe with chromothripsis call based on cutoffs for 
-### high confidence, low confidence cutoff, or all confidence 
+### high confidence, low confidence, or either confidence level
 # Note "low_conf" reports calls that surpass low-confidence threshold but *not* high-confidence threshold
-chromoth_combined$call_all_conf <- 0
-chromoth_combined[which(LC_cutoff | HC_cutoff1 | HC_cutoff2), "call_all_conf"] <- 1
+chromoth_combined$call_any_conf <- 0
+chromoth_combined[which(LC_cutoff | HC_cutoff1 | HC_cutoff2), "call_any_conf"] <- 1
 chromoth_combined$call_high_conf <- 0
 chromoth_combined[which(HC_cutoff1 | HC_cutoff2), "call_high_conf"] <- 1
 chromoth_combined$call_low_conf <- 0
 chromoth_combined[which(LC_cutoff & !(HC_cutoff1 | HC_cutoff2)), "call_low_conf"] <- 1
 
 ### Create new dataframe with sample-level summary
-# For each confidence call set: 
-# Count the number of chromothripsis regions per sample
-# Create a logical variable indicating whether or not each sample has >=1 chromothripsis region
+# Count the number of chromothripsis regions per sample (high, low, or any confidence)
+# Create a summary variable indicating whether or not each sample has >=1 chromothripsis region of low or high confidence
 
 chromoth_per_sample <- chromoth_combined %>% 
   dplyr::group_by(Kids_First_Biospecimen_ID) %>%
-  dplyr::summarize_at(c("call_all_conf", "call_high_conf", "call_low_conf"), sum)
+  dplyr::summarize_at(c("call_any_conf", "call_high_conf", "call_low_conf"), sum)
 
 names(chromoth_per_sample) <- c("Kids_First_Biospecimen_ID", 
-                                "count_regions_all_conf", "count_regions_high_conf", "count_regions_low_conf")
+                                "count_regions_any_conf", "count_regions_high_conf", "count_regions_low_conf")
 
-chromoth_per_sample$any_regions_all_conf <- chromoth_per_sample$count_regions_all_conf>0
-chromoth_per_sample$any_regions_high_conf <- chromoth_per_sample$count_regions_high_conf>0
-chromoth_per_sample$any_regions_low_conf <- chromoth_per_sample$count_regions_low_conf>0
-
-# Merge "any_regions_*" into one column containing info on each confidence level
-chromoth_per_sample$any_regions_merged <- "No Calls"
-chromoth_per_sample[chromoth_per_sample$any_regions_low_conf, "any_regions_merged"] <- "Low Confidence"
-chromoth_per_sample[chromoth_per_sample$any_regions_high_conf, "any_regions_merged"] <- "High Confidence"
+# Summary variable
+chromoth_per_sample$any_regions <- "No Calls"
+chromoth_per_sample[chromoth_per_sample$count_regions_low_conf>0, "any_regions"] <- "Low Confidence"
+chromoth_per_sample[chromoth_per_sample$count_regions_high_conf>0, "any_regions"] <- "High Confidence"
+chromoth_per_sample$any_regions_logical <- chromoth_per_sample$count_regions_any_conf>0
 
 
 ## =====================  Write out results =====================
@@ -283,11 +282,11 @@ chromoth_per_sample[chromoth_per_sample$any_regions_high_conf, "any_regions_merg
 chromoth_combined$inter_other_chroms_coords_all <- gsub("\n", ";", chromoth_combined$inter_other_chroms_coords_all)
 
 # Write out ShatterSeek results with chromothripsis calls defined above
-write.table(chromoth_combined, file.path(analysis_dir, "results", "shatterseek_results_per_chromosome.txt"), 
+write.table(chromoth_combined, file.path(results_dir, "shatterseek_results_per_chromosome.txt"), 
             sep="\t", quote=F, row.names=F)
 
 # Write out per-sample summary of chromothripsis calls
-write.table(chromoth_per_sample, file.path(analysis_dir, "results", "chromothripsis_summary_per_sample.txt"), 
+write.table(chromoth_per_sample, file.path(results_dir, "chromothripsis_summary_per_sample.txt"), 
             sep="\t", quote=F, row.names=F)
 
 # Save list of chromoth objects in scratch directory (used for plotting in script 05)
