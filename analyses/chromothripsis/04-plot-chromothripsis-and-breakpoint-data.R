@@ -37,9 +37,9 @@ merge <- metadata_chromoth %>%
 
 # Scatterplot - chromothripsis regions, CNV breaks, SV breaks
 p <- merge %>%
-  dplyr::arrange(count_regions_all_conf) %>%
+  dplyr::arrange(count_regions_any_conf) %>%
   # Sort by number of chromothripsis calls so that the samples with chromothripsis are more visible
-  ggplot2::ggplot(ggplot2::aes(x = cnv_breaks_count, y = sv_breaks_count, color = as.factor(count_regions_all_conf))) +
+  ggplot2::ggplot(ggplot2::aes(x = cnv_breaks_count, y = sv_breaks_count, color = as.factor(count_regions_any_conf))) +
   ggplot2::geom_point(shape=1, size=2) + 
   ggplot2::ylim(c(0, 5000)) +
   ggplot2::scale_color_brewer(palette="YlOrRd", name="# Chromothripsis\nRegions") +
@@ -50,8 +50,8 @@ ggplot2::ggsave(file.path(plots_dir, "count_chromothripsis_cnv_and_sv_breaks_sca
 
 # Stripchart - chromothripsis regions, CNV breaks
 p <- merge %>%
-  ggplot2::ggplot(ggplot2::aes(x = as.factor(count_regions_all_conf), 
-                               y = cnv_breaks_count, color = as.factor(count_regions_all_conf))) +
+  ggplot2::ggplot(ggplot2::aes(x = as.factor(count_regions_any_conf), 
+                               y = cnv_breaks_count, color = as.factor(count_regions_any_conf))) +
   ggplot2::geom_jitter() +
   ggplot2::scale_color_brewer(palette="YlOrRd") +
   ggplot2::theme_light() +
@@ -62,8 +62,8 @@ ggplot2::ggsave(file.path(plots_dir, "count_chromothripsis_cnv_breaks_stripchart
 
 # Stripchart - chromothripsis regions, SV breaks
 p <- merge %>%
-  ggplot2::ggplot(ggplot2::aes(x = as.factor(count_regions_all_conf), 
-                               y = sv_breaks_count, color = as.factor(count_regions_all_conf))) +
+  ggplot2::ggplot(ggplot2::aes(x = as.factor(count_regions_any_conf), 
+                               y = sv_breaks_count, color = as.factor(count_regions_any_conf))) +
   ggplot2::geom_jitter() +
   ggplot2::scale_color_brewer(palette="YlOrRd") +
   ggplot2::theme_light() +

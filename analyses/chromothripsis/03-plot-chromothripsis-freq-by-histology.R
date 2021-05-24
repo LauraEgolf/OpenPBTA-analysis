@@ -38,8 +38,8 @@ metadata_chromoth <- dplyr::inner_join(metadata, chromoth_per_sample, by="Kids_F
 ### Plot by pathology_diagnosis (to compare to yangyangclover plots)
 # Basic bar plot: all regions (any confidence level)
 p <- metadata_chromoth %>%
-  dplyr::count(any_regions_all_conf, pathology_diagnosis, hex_codes) %>%
-  tidyr::pivot_wider(names_from = any_regions_all_conf, values_from = n, values_fill=0) %>%
+  dplyr::count(any_regions_logical, pathology_diagnosis, hex_codes) %>%
+  tidyr::pivot_wider(names_from = any_regions_logical, values_from = n, values_fill=0) %>%
   dplyr::group_by(pathology_diagnosis, hex_codes) %>%
   dplyr::mutate(group_size = sum(`TRUE`, `FALSE`)) %>%
   dplyr::filter(group_size >= 5) %>%   # Remove groups with <5
@@ -58,8 +58,8 @@ ggsave(file.path(plots_dir, "chromothripsis_proportion_per_pathology_diagnosis.p
 ### Plot by short_histology (to compare to chromosomal-instability plots)
 # Basic bar plot: all regions (any confidence level)
 p <- metadata_chromoth %>%
-  dplyr::count(any_regions_all_conf, short_histology, hex_codes) %>%
-  tidyr::pivot_wider(names_from = any_regions_all_conf, values_from = n, values_fill=0) %>%
+  dplyr::count(any_regions_logical, short_histology, hex_codes) %>%
+  tidyr::pivot_wider(names_from = any_regions_logical, values_from = n, values_fill=0) %>%
   dplyr::group_by(short_histology, hex_codes) %>%
   dplyr::mutate(group_size = sum(`TRUE`, `FALSE`)) %>%
   dplyr::filter(group_size >= 5) %>%   # Remove groups with <5
@@ -82,8 +82,8 @@ ggsave(file.path(plots_dir, "chromothripsis_proportion_per_short_histology.pdf")
 ### Basic bar plot: all regions (any confidence level)
 
 p <- metadata_chromoth %>%
-  dplyr::count(any_regions_all_conf, display_group, hex_codes) %>%
-  tidyr::pivot_wider(names_from = any_regions_all_conf, values_from = n, values_fill=0) %>%
+  dplyr::count(any_regions_logical, display_group, hex_codes) %>%
+  tidyr::pivot_wider(names_from = any_regions_logical, values_from = n, values_fill=0) %>%
   dplyr::group_by(display_group, hex_codes) %>%
   dplyr::mutate(group_size = sum(`TRUE`, `FALSE`)) %>%
   dplyr::mutate(prop = `TRUE` / group_size) %>%
@@ -102,7 +102,7 @@ ggsave(file.path(plots_dir, "chromothripsis_proportion_per_display_group.pdf"), 
 ### Bar plot stacked by low vs. high confidence 
 
 p <- ggplot(metadata_chromoth, aes(x = display_group, fill = hex_codes, 
-                                   alpha = factor(any_regions_merged, 
+                                   alpha = factor(any_regions, 
                                                   levels=c("No Calls", "Low Confidence", "High Confidence")))) +
   geom_bar(position = "fill") +
   scale_fill_identity() +
@@ -118,12 +118,12 @@ ggsave(file.path(plots_dir, "chromothripsis_proportion_per_display_group_withCon
 ### Bar plot stacked by number of chromothripsis regions
 
 # Define color scale for # chromothripsis regions, but set "0" as transparent so the bar doesn't show
-  # This will need to be updated if the ShatterSeek results change and there are samples with more than 4
-  # chromothripsis regions.
+  # TO DO: Set scale based on max # chromothripsis regions
+
 colors <- brewer.pal(5, "YlOrRd")
 colors[1] <- "#1C00ff00"
 
-p <- ggplot(metadata_chromoth, aes(x = display_group, fill = as.factor(count_regions_all_conf))) +
+p <- ggplot(metadata_chromoth, aes(x = display_group, fill = as.factor(count_regions_any_conf))) +
   geom_bar(position = "fill") +
   scale_fill_manual(values=colors, name="# Chromothripsis\nRegions") +
   ylim(c(0,0.4)) +  # ggplot will output warning - 16 rows missing (these are the bars for "0")
