@@ -9,6 +9,10 @@ library(ShatterSeek)
 # Define Magrittr pipe
 `%>%` <- dplyr::`%>%`
 
+# Suppress dplyr summarise output (gets repetitive when looping through samples)
+options(dplyr.summarise.inform = FALSE)
+
+
 ## ===================== Define Directory Paths =====================
 # Detect the ".git" folder -- this will in the project root directory.
 # Use this as the root directory to ensure proper sourcing of functions no
@@ -16,27 +20,33 @@ library(ShatterSeek)
 root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 analysis_dir <- file.path(root_dir, "analyses", "chromothripsis")
 results_dir <- file.path(analysis_dir, "results")
+cnv_scratch_dir <- file.path(root_dir, "scratch", "cnv-merged")
 
 # Create results directory if it doesn't exist
 if (!dir.exists(results_dir)) {
   dir.create(results_dir, recursive = TRUE)
 }
 
+# Create scratch/cnv-merged/ directory if it doesn't exist
+if (!dir.exists(cnv_scratch_dir)) {
+  dir.create(cnv_scratch_dir, recursive = TRUE)
+}
+
 
 ## ===================== Load Independent Specimen List =====================
-independent_specimen_list <- read.table(file.path(root_dir, "data", "independent-specimens.wgs.primary-plus.tsv"), 
-                                        header = TRUE, sep = "\t", stringsAsFactors = F)
+independent_specimen_list <- readr::read_tsv(file.path(root_dir, "data", "independent-specimens.wgs.primary-plus.tsv"))
+
 # Create vector with all sample names
 bioid <- unique(independent_specimen_list$Kids_First_Biospecimen_ID)
 
 
 ## ===================== Load and Format CNV File =====================
 # Read cnv consensus file
-cnvconsensus <- read.table(file.path(root_dir, "data", "pbta-cnv-consensus.seg.gz"),
-                           header = TRUE, sep = "\t", stringsAsFactors = F)
+cnvconsensus <- readr::read_tsv(file.path(root_dir, "data", "pbta-cnv-consensus.seg.gz"))
 
 # Choose independent specimens 
-cnvconsensus <- cnvconsensus[cnvconsensus$ID %in% bioid,]
+cnvconsensus <- cnvconsensus %>% 
+  dplyr::filter(ID %in% bioid)
 
 # Subset bioid to only samples that have CNV data
   # Note that 20 samples are not included in the CNV consensus because they failed QC 
@@ -45,13 +55,11 @@ cnvconsensus <- cnvconsensus[cnvconsensus$ID %in% bioid,]
   # specimens list.
 bioid <- bioid[bioid %in% cnvconsensus$ID]
 
-## Reformat to fit ShatterSeek input requirements:
-# Remove chrY 
-cnvconsensus <- cnvconsensus[cnvconsensus$chrom != "chrY",]
-# Remove "chr" notation 
-cnvconsensus$chrom <- gsub("chr","",cnvconsensus$chrom)
-# Remove rows with NA copy number
-cnvconsensus <- cnvconsensus[!is.na(cnvconsensus$copy.num),]
+# Reformat to fit ShatterSeek input requirements: remove chrY, remove rows with NA copy number, remove "chr" notation
+cnvconsensus <- cnvconsensus %>% 
+  dplyr::filter(chrom != "chrY", 
+                !is.na(cnvconsensus$copy.num)) %>%
+  dplyr::mutate(chrom = stringr::str_remove_all(chrom, "chr"))
 
 
 ## ===================== Define function to merge consecutive CN segments =====================
@@ -64,74 +72,47 @@ cnvconsensus <- cnvconsensus[!is.na(cnvconsensus$copy.num),]
 # Because the consensus CNV results include gaps, this threw off the ShatterSeek results. Samples with 
 # no CN changes (CN=2 for every segment) were called as having copy number oscillations.
 
-# To avoid this problem, this function merges consecutive CN segments that share the same CN value.
+# To avoid this problem, this function takes CNV data from a single sample and merges consecutive CN segments 
+# that share the same CN value.
 # There can be gaps of any length in between the segments - they just need to be consecutive (not adjacent) 
 # on the same chromosome and have the same copy number value.
-
-# I couldn't find a solution to do something like this using established packages, but I'm happy to hear suggestions 
-# if anyone can think of a way to simplify this.
 
 mergeCNsegments <- function(cnv_df) {
 
   # Order rows by chromosome and start position 
-  cnv_df <- cnv_df[with(cnv_df, order(chrom, loc.start)),]
+  cnv_df <- dplyr::arrange(cnv_df, chrom, loc.start)
   
-  # Annotate each row with TRUE if its chromosome and CN value matches the next row, or FALSE if it doesn't
-  checkCNV_logical <- logical()
-  num_rows <- dim(cnv_df)[1]-1 # Subtract 1 because the last row will not have a comparison
-  for (n in 1:num_rows) {
-    checkCNV_logical[n] <-
-      (cnv_df[n, "chrom"] == cnv_df[n+1, "chrom"]) & 
-      (cnv_df[n, "copy.num"] == cnv_df[n+1, "copy.num"])
-  }
-  cnv_df$checkCNV_logical <- c(checkCNV_logical, NA) # Append an NA for the last row
+  # Define function to increment index_counter if chromosome and CN values for two rows do not match
+  compare_adjacent_segs <- function(seg1, seg2) {
+    if ((seg1$chrom == seg2$chrom) & 
+        (seg1$copy.num == seg2$copy.num)) {
+          return(index_counter)
+      } else {
+          return(index_counter + 1)
+      }
+    }
   
-  # Now identify runs of TRUE values, and extract their start and end positions within the dataframe
-  # to get the positions for consecutive rows with matching copy number
-  # (Adapted from https://masterr.org/r/how-to-find-consecutive-repeats-in-r/)
-  
-  # Identify consecutive runs of same value (TRUE or FALSE)
-  runs <- rle(cnv_df$checkCNV_logical)
-  
-  # Create index for TRUE runs 
-  runs_TRUE <- which(runs$values == TRUE)
-  
-  # Calculate cumulative sum for run lengths
-  runs.lengths.cumsum <- cumsum(runs$lengths)
-  
-  # Find end positions for TRUE runs; add 1 to get the last row with matching CN
-  # (because TRUE is defined based on row n and row n+1)
-  ends <- runs.lengths.cumsum[runs_TRUE] + 1
-  
-  # Find start positions for TRUE runs
-  newindex <- ifelse(runs_TRUE>1, runs_TRUE-1, 0)
-  starts <- runs.lengths.cumsum[newindex] + 1
-  if (0 %in% newindex) starts <- c(1,starts)
-  
-  # Loop through start and end positions for consecutive rows of matching CN; 
-  # create new merged rows; define a list of unmerged rows to remove
-  merged_rows <- data.frame()
-  rows_to_remove <- vector()
-  for (i in 1:length(starts)){
-    merged_chrom <- cnv_df[starts[i], "chrom"]
-    merged_start <- cnv_df[starts[i], "loc.start"]
-    merged_end <- cnv_df[ends[i], "loc.end"]
-    merged_cn <- cnv_df[starts[i], "copy.num"]
-    merged_row <- data.frame(chrom=merged_chrom, loc.start=merged_start, loc.end=merged_end, copy.num=merged_cn)
-    merged_rows <- rbind(merged_rows, merged_row)
-    rows_to_remove <- c(rows_to_remove, starts[i]:ends[i])
+  # Create index column; loop through rows and increment the index each time the chromosome or CN value 
+  # does not match the previous row (starting at second row)
+  cnv_df$index <- 0
+  index_counter <- 1
+  for (row_iter in 2:nrow(cnv_df)) {
+    index_counter <- compare_adjacent_segs(cnv_df[row_iter, ], cnv_df[row_iter-1, ])
+    cnv_df[row_iter, "index"] <- index_counter
   }
   
-  # Remove unmerged rows from CNV df
-  cnv_df_merged <- cnv_df[-rows_to_remove,]
+  # Separately update index for first row (check whether first row matches second row)
+  cnv_df[1, "index"] <- ifelse(compare_adjacent_segs(cnv_df[1,], cnv_df[2,]), 1, 0)
+    # Set index to 1 if row 1 matches row 2
+    # Set index to 0 if row 1 doesn't match row 2
   
-  # Add merged rows to CNV df (first subset to the necessary columns)
-  cnv_df_merged <- cnv_df_merged[,c(2:4,7)]
-  cnv_df_merged <- rbind(cnv_df_merged, merged_rows)
+  # Merge rows by selecting minimum loc.start and maximum loc.end for each index value
+  # Reorder rows by chromosome and start position
+  cnv_df_merged <- cnv_df %>%
+    dplyr::group_by(chrom, copy.num, index) %>% 
+    dplyr::summarise(loc.start=min(loc.start), loc.end=max(loc.end)) %>% 
+    dplyr::arrange(chrom, loc.start)
   
-  # Reorder rows by chromosome and start position 
-  cnv_df_merged <- cnv_df_merged[with(cnv_df_merged, order(chrom, loc.start)),]
-
 }
 
 
@@ -149,7 +130,10 @@ for (b in bioid) {
   print(paste0("Running: ", b, " (", count, " of ", total, ")"))
   
   # Read SV file for current sample
-  sv_current <- read.table(file.path(root_dir, "scratch","sv-vcf",paste(b,"_withoutYandM.tsv",sep="")),sep="\t",header=TRUE)
+  sv_current <- readr::read_tsv(file.path(root_dir, "scratch", "sv-vcf", paste0(b, "_withoutYandM.tsv")), 
+                                col_types = readr::cols(chrom1 = readr::col_character(), # Specify type for problematic columns
+                                                        chrom2 = readr::col_character(),
+                                                        alt2 = readr::col_character())) 
   
   # Subset CNV dataframe to current sample
   cnv_current <-  cnvconsensus[cnvconsensus$ID == b,]
@@ -162,7 +146,10 @@ for (b in bioid) {
 
   # Merge consecutive CN segments that share the same CN value (see function description)
   cnv_current_merged <- mergeCNsegments(cnv_current)
-
+  
+  # Write out merged CNV file (for debugging)
+  readr::write_tsv(cnv_current_merged, file.path(cnv_scratch_dir, paste0(b, "_merged_cnv.tsv")))
+  
   # Build SV and CNV objects
   SV_data <-
     SVs(
@@ -249,7 +236,7 @@ HC_cutoff2 <-
 
 ### Annotate each row of ShatterSeek results dataframe with chromothripsis call based on cutoffs for 
 ### high confidence, low confidence, or either confidence level
-# Note "low_conf" reports calls that surpass low-confidence threshold but *not* high-confidence threshold
+# Note "low_conf" calls surpass the low-confidence threshold but *not* the high-confidence threshold
 chromoth_combined$call_any_conf <- 0
 chromoth_combined[which(LC_cutoff | HC_cutoff1 | HC_cutoff2), "call_any_conf"] <- 1
 chromoth_combined$call_high_conf <- 0
@@ -258,21 +245,24 @@ chromoth_combined$call_low_conf <- 0
 chromoth_combined[which(LC_cutoff & !(HC_cutoff1 | HC_cutoff2)), "call_low_conf"] <- 1
 
 ### Create new dataframe with sample-level summary
-# Count the number of chromothripsis regions per sample (high, low, or any confidence)
-# Create a summary variable indicating whether or not each sample has >=1 chromothripsis region of low or high confidence
 
+# Count the number of chromothripsis regions per sample (high, low, or any confidence)
 chromoth_per_sample <- chromoth_combined %>% 
   dplyr::group_by(Kids_First_Biospecimen_ID) %>%
   dplyr::summarize_at(c("call_any_conf", "call_high_conf", "call_low_conf"), sum)
-
 names(chromoth_per_sample) <- c("Kids_First_Biospecimen_ID", 
                                 "count_regions_any_conf", "count_regions_high_conf", "count_regions_low_conf")
 
-# Summary variable
-chromoth_per_sample$any_regions <- "No Calls"
-chromoth_per_sample[chromoth_per_sample$count_regions_low_conf>0, "any_regions"] <- "Low Confidence"
-chromoth_per_sample[chromoth_per_sample$count_regions_high_conf>0, "any_regions"] <- "High Confidence"
-chromoth_per_sample$any_regions_logical <- chromoth_per_sample$count_regions_any_conf>0
+# Create a summary variable indicating whether a sample has no calls, >=1 low-confidence call, 
+# or >=1 high-confidence call (the same sample can also have low confidence calls)
+chromoth_per_sample <- chromoth_per_sample %>%
+  dplyr::mutate(
+    any_regions = dplyr::case_when(
+      count_regions_high_conf > 0 ~ "High Confidence",
+      count_regions_low_conf > 0 ~ "Low Confidence",
+      TRUE ~ "No Calls"),  # Set all others to "No Calls"
+    any_regions_logical = (count_regions_any_conf>0)
+    )
 
 
 ## =====================  Write out results =====================
