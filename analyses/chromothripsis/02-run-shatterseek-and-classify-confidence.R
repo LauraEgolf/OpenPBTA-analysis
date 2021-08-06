@@ -41,24 +41,24 @@ bioid <- unique(independent_specimen_list$Kids_First_Biospecimen_ID)
 
 
 ## ===================== Load and Format CNV File =====================
-# Read cnv consensus file
-cnvconsensus <- readr::read_tsv(file.path(root_dir, "data", "pbta-cnv-consensus.seg.gz"))
+# Read CNVkit file --- need to rename variable
+cnv <- readr::read_tsv(file.path(root_dir, "data", "pbta-cnv-cnvkit.seg.gz"))
 
 # Choose independent specimens 
-cnvconsensus <- cnvconsensus %>% 
+cnv <- cnv %>% 
   dplyr::filter(ID %in% bioid)
 
-# Subset bioid to only samples that have CNV data
-  # Note that 20 samples are not included in the CNV consensus because they failed QC 
-  # for 2+ callers (see analyses/copy_number_consensus_call/results/uncalled_samples.tsv).
-  # So this analysis includes 777 samples instead of the full 797 in the independent
-  # specimens list.
-bioid <- bioid[bioid %in% cnvconsensus$ID]
+# # Subset bioid to only samples that have CNV data --- all samples have CNVkit data; this was only relevant to consensus
+#   # Note that 20 samples are not included in the CNV consensus because they failed QC 
+#   # for 2+ callers (see analyses/copy_number_consensus_call/results/uncalled_samples.tsv).
+#   # So this analysis includes 777 samples instead of the full 797 in the independent
+#   # specimens list.
+# bioid <- bioid[bioid %in% cnv$ID]
 
 # Reformat to fit ShatterSeek input requirements: remove chrY, remove rows with NA copy number, remove "chr" notation
-cnvconsensus <- cnvconsensus %>% 
-  dplyr::filter(chrom != "chrY", 
-                !is.na(cnvconsensus$copy.num)) %>%
+cnv <- cnv %>% 
+  dplyr::filter(chrom != "chrY") %>%
+                # !is.na(cnv$copy.num)) %>%    # No NA's in CNVkit data
   dplyr::mutate(chrom = stringr::str_remove_all(chrom, "chr"))
 
 
@@ -96,7 +96,6 @@ mergeCNsegments <- function(cnv_df) {
   # does not match the previous row (starting at second row)
   cnv_df$index <- 0
   index_counter <- 1
-  if (nrow(cnv_df) >=2) {
    for (row_iter in 2:nrow(cnv_df)) {
      index_counter <- compare_adjacent_segs(cnv_df[row_iter, ], cnv_df[row_iter-1, ])
      cnv_df[row_iter, "index"] <- index_counter
@@ -106,7 +105,6 @@ mergeCNsegments <- function(cnv_df) {
   cnv_df[1, "index"] <- ifelse(compare_adjacent_segs(cnv_df[1,], cnv_df[2,]), 1, 0)
     # Set index to 1 if row 1 matches row 2
     # Set index to 0 if row 1 doesn't match row 2
-  }
   
   # Merge rows by selecting minimum loc.start and maximum loc.end for each index value
   # Reorder rows by chromosome and start position
@@ -124,6 +122,7 @@ total <- length(bioid) # Total number of samples to run
 chromoth_combined <- data.frame() # Data frame to merge summary data from different samples
 chromoth_obj_list <- vector("list", total) # List to store ShatterSeek chromoth objects from different samples
 names(chromoth_obj_list) <- bioid
+missing_data <- list() # List to store samples with missing data
 
 # Loop through sample list and run ShatterSeek
 for (b in bioid) {
@@ -138,16 +137,20 @@ for (b in bioid) {
                                                         alt2 = readr::col_character())) 
   
   # Subset CNV dataframe to current sample
-  cnv_current <-  cnvconsensus[cnvconsensus$ID == b,]
+  cnv_current <-  cnv[cnv$ID == b,]
   
-  # If CNV or SV file is empty, jump into next loop
+  # If CNV or SV file is empty, record sample in missing_data list and jump into next loop
   if (nrow(cnv_current) == 0 | nrow(sv_current) == 0) {
-      print(paste0(b," is missing CNV or SV data"))
+    print(paste0(b," is missing CNV or SV data"))
+    missing_data <- c(missing_data, b)
     next;
   }
 
   # Merge consecutive CN segments that share the same CN value (see function description)
-  cnv_current_merged <- mergeCNsegments(cnv_current)
+    # Avoid error by skipping this step if CNV dataframe only has 1 row 
+  if(nrow(cnv_current)>1){
+    cnv_current_merged <- mergeCNsegments(cnv_current)
+  }
   
   # Write out merged CNV file (for debugging)
   readr::write_tsv(cnv_current_merged, file.path(cnv_scratch_dir, paste0(b, "_merged_cnv.tsv")))
@@ -284,3 +287,7 @@ write.table(chromoth_per_sample, file.path(results_dir, "chromothripsis_summary_
 
 # Save list of chromoth objects in scratch directory (used for plotting in script 05)
 saveRDS(chromoth_obj_list, file = file.path(root_dir, "scratch", "chromoth_obj_list.rds"))
+
+# Save list of samples with missing data in scratch directory (for debugging)
+write.table(missing_data, file = file.path(root_dir, "scratch", "samples_with_missing_data.txt"),
+            sep="\n", quote=F, row.names=F, col.names=F)
