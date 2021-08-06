@@ -10,7 +10,7 @@ plots_dir <- file.path(analysis_dir, "plots", "05-candidate-regions/")
 ### Read in chromothripsis regions and subset to low- or high-confidence calls
 chromoth_combined <- read.table(file.path(analysis_dir, "results", "shatterseek_results_per_chromosome.txt"), 
                                 head=T, sep="\t", stringsAsFactors = F) 
-chromoth_calls <- subset(chromoth_combined, call_all_conf==1)
+chromoth_calls <- subset(chromoth_combined, call_any_conf==1)
 
 ### Read in list of Shatterseek chromoth objects - need these for ShatterSeek::plot_chromothripsis()
 chromoth_obj_list <- readRDS(file = file.path(root_dir, "scratch", "chromoth_obj_list.rds"))

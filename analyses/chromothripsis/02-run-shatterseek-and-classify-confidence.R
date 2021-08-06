@@ -41,7 +41,7 @@ bioid <- unique(independent_specimen_list$Kids_First_Biospecimen_ID)
 
 
 ## ===================== Load and Format CNV File =====================
-# Read CNVkit file --- need to rename variable
+# Read CNVkit file 
 cnv <- readr::read_tsv(file.path(root_dir, "data", "pbta-cnv-cnvkit.seg.gz"))
 
 # Choose independent specimens 
