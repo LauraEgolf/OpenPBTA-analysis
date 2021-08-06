@@ -41,24 +41,24 @@ bioid <- unique(independent_specimen_list$Kids_First_Biospecimen_ID)
 
 
 ## ===================== Load and Format CNV File =====================
-# Read cnv consensus file
-cnvconsensus <- readr::read_tsv(file.path(root_dir, "data", "pbta-cnv-consensus.seg.gz"))
+# Read CNVkit file --- need to rename variable
+cnv <- readr::read_tsv(file.path(root_dir, "data", "pbta-cnv-cnvkit.seg.gz"))
 
 # Choose independent specimens 
-cnvconsensus <- cnvconsensus %>% 
+cnv <- cnv %>% 
   dplyr::filter(ID %in% bioid)
 
-# Subset bioid to only samples that have CNV data
-  # Note that 20 samples are not included in the CNV consensus because they failed QC 
-  # for 2+ callers (see analyses/copy_number_consensus_call/results/uncalled_samples.tsv).
-  # So this analysis includes 777 samples instead of the full 797 in the independent
-  # specimens list.
-bioid <- bioid[bioid %in% cnvconsensus$ID]
+# # Subset bioid to only samples that have CNV data --- all samples have CNVkit data; this was only relevant to consensus
+#   # Note that 20 samples are not included in the CNV consensus because they failed QC 
+#   # for 2+ callers (see analyses/copy_number_consensus_call/results/uncalled_samples.tsv).
+#   # So this analysis includes 777 samples instead of the full 797 in the independent
+#   # specimens list.
+# bioid <- bioid[bioid %in% cnv$ID]
 
 # Reformat to fit ShatterSeek input requirements: remove chrY, remove rows with NA copy number, remove "chr" notation
-cnvconsensus <- cnvconsensus %>% 
-  dplyr::filter(chrom != "chrY", 
-                !is.na(cnvconsensus$copy.num)) %>%
+cnv <- cnv %>% 
+  dplyr::filter(chrom != "chrY") %>%
+                # !is.na(cnv$copy.num)) %>%    # No NA's in CNVkit data
   dplyr::mutate(chrom = stringr::str_remove_all(chrom, "chr"))
 
 
@@ -137,7 +137,7 @@ for (b in bioid) {
                                                         alt2 = readr::col_character())) 
   
   # Subset CNV dataframe to current sample
-  cnv_current <-  cnvconsensus[cnvconsensus$ID == b,]
+  cnv_current <-  cnv[cnv$ID == b,]
   
   # If CNV or SV file is empty, record sample in missing_data list and jump into next loop
   if (nrow(cnv_current) == 0 | nrow(sv_current) == 0) {

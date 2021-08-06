@@ -145,7 +145,7 @@ Note ggplot will output warning for 16 rows missing - these are the bars for "0"
 # Define color scale for # chromothripsis regions, but set "0" as transparent so the bar doesn't show
 # Pick number of colors based on max number of chromothripsis regions observed
 max_regions <- max(chromoth_per_sample$count_regions_any_conf)
-colors <- brewer.pal(max_regions+1, "YlOrRd")
+colors <- colorRampPalette(brewer.pal(9,"YlOrRd"))(max_regions+1)
 colors[1] <- "#1C00ff00"
 
 p <- ggplot(chromoth_histology, aes(x = display_group, fill = as.factor(count_regions_any_conf))) +
