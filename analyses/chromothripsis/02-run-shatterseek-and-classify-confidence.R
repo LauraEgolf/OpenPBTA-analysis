@@ -33,11 +33,15 @@ if (!dir.exists(cnv_scratch_dir)) {
 }
 
 
-## ===================== Load Independent Specimen List =====================
+## ===================== Load Independent Specimen List and Metadata =====================
 independent_specimen_list <- readr::read_tsv(file.path(root_dir, "data", "independent-specimens.wgs.primary-plus.tsv"))
 
 # Create vector with all sample names
 bioid <- unique(independent_specimen_list$Kids_First_Biospecimen_ID)
+
+# Read in metadata and subset to independent specimens
+metadata <- readr::read_tsv(file.path(root_dir, "data", "pbta-histologies.tsv")) %>%
+  dplyr::filter(Kids_First_Biospecimen_ID %in% bioid)
 
 
 ## ===================== Load and Format CNV File =====================
@@ -55,11 +59,22 @@ cnvconsensus <- cnvconsensus %>%
   # specimens list.
 bioid <- bioid[bioid %in% cnvconsensus$ID]
 
-# Reformat to fit ShatterSeek input requirements: remove chrY, remove rows with NA copy number, remove "chr" notation
+# Reformat to fit ShatterSeek input requirements: remove chrY, remove "chr" notation
 cnvconsensus <- cnvconsensus %>% 
-  dplyr::filter(chrom != "chrY", 
-                !is.na(cnvconsensus$copy.num)) %>%
+  dplyr::filter(chrom != "chrY") %>%
   dplyr::mutate(chrom = stringr::str_remove_all(chrom, "chr"))
+
+# Replace rows of NA copy number with ploidy for that particular tumor
+  # This is necessary because the latest cnvconsensus data reports all regions lacking CNVs as "NA"
+  # But ShatterSeek needs complete CN data to identify oscillating CN regions
+  # Here, we assume the NA regions match the tumor ploidy. Although it's important to note that some regions marked NA
+  # could be uncallable regions, in addition the regions lacking CNVs.
+##### TODO: convert to dplyr
+metadata <- as.data.frame(metadata)
+rownames(metadata) <- metadata$Kids_First_Biospecimen_ID
+cnvconsensus <- cnvconsensus %>%
+  mutate(ploidy = metadata[cnvconsensus$ID, "tumor_ploidy"]) 
+cnvconsensus[is.na(cnvconsensus$copy.num), "copy.num"] <- cnvconsensus[is.na(cnvconsensus$copy.num), "ploidy"]
 
 
 ## ===================== Define function to merge consecutive CN segments =====================
@@ -67,8 +82,7 @@ cnvconsensus <- cnvconsensus %>%
 ### Explanation:
 
 # ShatterSeek treats every CN segment as a copy number oscillation, even if two consecutive segments 
-# share the same CN value. This is true whether or not there are gaps in between consecutive segments 
-# (and it can't handle NA values).
+# share the same CN value. This is true whether or not there are gaps in between consecutive segments.
 # Because the consensus CNV results include gaps, this threw off the ShatterSeek results. Samples with 
 # no CN changes (CN=2 for every segment) were called as having copy number oscillations.
 
