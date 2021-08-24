@@ -532,7 +532,6 @@ p</code></pre>
 # Pick number of colors based on max number of chromothripsis regions observed
 max_regions &lt;- max(chromoth_per_sample$count_regions_any_conf)
 colors &lt;- colorRampPalette(brewer.pal(9,&quot;YlOrRd&quot;))(max_regions+1)
-#colors &lt;- brewer.pal(max_regions+1, &quot;YlOrRd&quot;)
 colors[1] &lt;- &quot;#1C00ff00&quot;
 
 p &lt;- ggplot(chromoth_histology, aes(x = display_group, fill = as.factor(count_regions_any_conf))) +
