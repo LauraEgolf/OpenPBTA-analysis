@@ -114,8 +114,8 @@ ggsave(file.path(plots_dir, "count_chromothripsis_cnv_breaks_stripchart.pdf"), p
 
 ```{r}
 p <- merge %>%
-  ggplot(aes(x = count_regions_any_conf, 
-                               y = sv_breaks_count, fill = count_regions_any_conf)) +
+  ggplot(aes(x = count_regions_any_conf_truncated, 
+                               y = sv_breaks_count, fill = count_regions_any_conf_truncated)) +
   geom_jitter(shape=21, size=2, color="black") +
   scale_fill_manual(values=colors) +
   theme(legend.position = "none") +
