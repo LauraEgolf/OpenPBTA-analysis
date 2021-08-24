@@ -89,12 +89,12 @@ p <- merge %>%
   geom_point(shape=21, size=2, color="black") + 
   scale_fill_manual(values=colors, name="# Chromothripsis\nRegions") +
   xlab("# CNV Breaks") + 
-  ylab("# SV Breaks") +
-  ylim(c(0, 5000)) 
-
+  ylab("# SV Breaks")
 p
 ggsave(file.path(plots_dir, "count_chromothripsis_cnv_and_sv_breaks_scatterplot.pdf"), p)
 ```
+
+Note: CNV breaks data is missing 20 samples (excluded during consensus CNV generation), which are not missing from SV breaks or chromothripsis data (used CNVkit-only for this version)
 
 #### Stripchart: Chromothripsis regions vs. CNV breaks
 
@@ -123,8 +123,7 @@ p <- merge %>%
   theme(legend.position = "none") +
   geom_boxplot(fill=NA, outlier.shape=NA) +
   xlab("# Chromothripsis Regions") + 
-  ylab("# SV Breaks") +
-  ylim(c(0, 5000)) 
+  ylab("# SV Breaks") 
 p
 ggsave(file.path(plots_dir, "count_chromothripsis_sv_breaks_stripchart.pdf"), p)
 ``` 
