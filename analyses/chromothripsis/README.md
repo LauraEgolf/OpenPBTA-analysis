@@ -6,9 +6,9 @@ Laura Egolf ([@LauraEgolf](https://github.com/LauraEgolf/)), Yang Yang ([@yangya
 This module runs ShatterSeek, identifies chromothripsis regions, and visualizes the results.
 
 #### Inputs from data download
-`independent-specimens.wgs.primary-plus.tsv`
-`pbta-sv-manta.tsv`
-`pbta-cnv-consensus.seg`
+- `independent-specimens.wgs.primary-plus.tsv`
+- `pbta-sv-manta.tsv`
+- `pbta-cnv-consensus.seg`
 
 #### Order of scripts in analysis
 `01-process-sv-file.R` : This script reformats SV files for ShatterSeek input.
